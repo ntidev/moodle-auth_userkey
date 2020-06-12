@@ -30,6 +30,7 @@ use auth_userkey\userkey_manager_interface;
 require_once($CFG->libdir . "/externallib.php");
 require_once($CFG->libdir.'/authlib.php');
 require_once($CFG->dirroot . '/user/lib.php');
+require_once($CFG->dirroot . '/user/profile/lib.php');
 
 /**
  * User key authentication plugin.
@@ -71,6 +72,7 @@ class auth_plugin_userkey extends auth_plugin_base {
         $this->authtype = 'userkey';
         $this->config = get_config('auth_userkey');
         $this->userkeymanager = new core_userkey_manager($this->config);
+        $this->customfields = ['usertype'];
     }
 
     /**
@@ -288,7 +290,7 @@ class auth_plugin_userkey extends auth_plugin_base {
         $user['confirmed'] = 1;
         $user['mnethostid'] = $CFG->mnet_localhost_id;
 
-        $requiredfieds = ['username', 'email', 'firstname', 'lastname'];
+        $requiredfieds = ['username', 'email', 'firstname', 'lastname', 'customfields'];
         $missingfields = [];
         foreach ($requiredfieds as $requiredfied) {
             if (empty($user[$requiredfied])) {
@@ -310,6 +312,18 @@ class auth_plugin_userkey extends auth_plugin_base {
         }
 
         $userid = user_create_user($user);
+        $user['id'] = $userid;
+
+        $user = (object) $user;
+        profile_load_data($user);
+
+        //Custom fields.
+        if (!empty($user->customfields)) {
+            foreach ($user->customfields as $customfield) {
+                $user->{'profile_field_' . $customfield['type']} = $customfield['value'];
+            }
+            profile_save_data((object) $user);
+        }
         return $DB->get_record('user', ['id' => $userid]);
     }
 
@@ -548,6 +562,13 @@ class auth_plugin_userkey extends auth_plugin_base {
         if ($this->should_create_user() || $this->should_update_user()) {
             $parameters['firstname'] = new external_value(PARAM_NOTAGS, 'The first name(s) of the user', VALUE_OPTIONAL);
             $parameters['lastname']  = new external_value(PARAM_NOTAGS, 'The family name of the user', VALUE_OPTIONAL);
+            $parameters['customfields'] = new external_multiple_structure(
+                new external_single_structure(
+                    array(
+                        'type'  => new external_value(PARAM_ALPHANUMEXT, 'The name of the custom field'),
+                        'value' => new external_value(PARAM_RAW, 'The value of the custom field')
+                    )
+                ), 'User custom fields', VALUE_OPTIONAL);
 
             if ($mappingfield != 'email') {
                 $parameters['email'] = new external_value(PARAM_RAW_TRIMMED, 'A valid and unique email address', VALUE_OPTIONAL);
